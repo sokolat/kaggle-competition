@@ -1,1 +1,1 @@
-# .configs
+# kaggle-competition
