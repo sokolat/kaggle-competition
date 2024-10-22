@@ -18,21 +18,27 @@ def split_data(X, y, seed):
     np.random.seed(seed)  # Set random seed for reproducibility
     np.random.shuffle(indices)  # Shuffle the indices randomly
     # Split indices into 70% training, 20% validation, and 10% testing
-    train_indices = indices[: int(0.7 * len(indices))]
-    val_indices = indices[int(0.7 * len(indices)) : int(0.9 * len(indices))]
-    test_indices = indices[int(0.9 * len(indices)) :]
+    train_indices = indices[: int(0.8 * len(indices))]
+    val_indices = indices[int(0.8 * len(indices)) :]
+    # test_indices = indices[int(0.8 * len(indices)) :]
     # Split features and labels according to the indices
     X_train = X[train_indices]
     y_train = y[train_indices, 1]
     X_val = X[val_indices]
     y_val = y[val_indices, 1]
-    X_test = X[test_indices]
-    y_test = y[test_indices, 1]
-    return X_train, y_train, X_val, y_val, X_test, y_test
+    # X_test = X[test_indices]
+    # y_test = y[test_indices, 1]
+    return X_train, y_train, X_val, y_val
+
+
+def compute_tf_idf(X):
+    tf = X / np.sum(X, axis=1)[:, None]
+    idf = np.log(X.shape[0] / np.count_nonzero(X, axis=0))
+    return tf * idf
 
 
 # Function to compute the macro F1 score given true and predicted labels
-def compute_metrics(y_true, y_pred):
+def compute_f1_score(y_true, y_pred):
     tp = np.zeros(2)  # True positives for each class
     fp = np.zeros(2)  # False positives for each class
     fn = np.zeros(2)  # False negatives for each class
@@ -79,20 +85,21 @@ class NaiveBayesClassifier:
         # Compute log probabilities for each feature conditioned on the class
         feature_log_probs = np.log(
             [
-                (np.sum(class0_features, axis=0) + self.alpha)
-                / (np.sum(class0_features) + self.alpha * train_inputs.shape[1]),
                 (np.sum(class1_features, axis=0) + self.alpha)
                 / (np.sum(class1_features) + self.alpha * train_inputs.shape[1]),
+                (np.sum(class0_features, axis=0) + self.alpha)
+                / (np.sum(class0_features) + self.alpha * train_inputs.shape[1]),
             ]
         )
         log_probs = np.c_[
-            feature_log_probs, log_priors
+            feature_log_probs,
+            log_priors,
         ]  # Combine feature log probs and priors
         return log_probs
 
     # Function to make predictions using the model
     def infer(self, test_inputs, w):
-        return np.argmax(
+        return np.argmin(
             test_inputs @ w.T, axis=1
         )  # Predict class with the highest probability
 
@@ -102,11 +109,9 @@ def main():
     # Load the training and evaluation data
     X_train, y_train, X_eval = load_data()
     # Split the data into training, validation, and test sets
-    X_train, y_train, X_val, y_val, X_test, y_test = split_data(X_train, y_train, 42)
-    alpha_values = np.arange(0, 10.1, 0.1)  # Range of alpha values to test
+    X_train, y_train, X_val, y_val = split_data(X_train, y_train, 42)
     f1_train_values = []  # Store F1 scores for training data
     f1_val_values = []  # Store F1 scores for validation data
-
     # Loop over alpha values and evaluate the model
     for alpha in alpha_values:
         nbClf = NaiveBayesClassifier(alpha)  # Initialize Naive Bayes classifier
@@ -118,15 +123,21 @@ def main():
         )
 
         # Compute F1 scores
-        f1_val = compute_metrics(y_val, y_inferred_val)
-        f1_train = compute_metrics(y_train, y_inferred_train)
-
+        f1_val = compute_f1_score(y_val, y_inferred_val)
+        f1_train = compute_f1_score(y_train, y_inferred_train)
+        # cnb = ComplementNB(alpha=alpha)
+        # cnb.fit(X_train, y_train)
+        # y_train_pred = cnb.predict(X_train)
+        # y_val_pred = cnb.predict(X_val)
+        # f1_val = compute_f1_score(y_val, y_val_pred)
+        # f1_train = compute_f1_score(y_train, y_train_pred)
         # Store the F1 scores
         f1_val_values.append(f1_val)
         f1_train_values.append(f1_train)
+        print(
+            f"Alpha: {alpha}, Macro F1 Score - Train: {f1_train:.4f}, Validation: {f1_val:.4f}"
+        )
 
-    # Plotting the macro F1 scores (commented out)
-    """
     plt.figure(figsize=(10, 6))
     plt.plot(
         alpha_values,
@@ -148,16 +159,13 @@ def main():
     plt.legend()
     plt.grid(True)
     plt.show()
-    """
 
     # Find the optimal alpha value based on the highest validation F1 score
     alpha_opt = alpha_values[np.argmax(f1_val_values)]
-
-    # Retrain the model using the optimal alpha and the entire dataset
     nbClf = NaiveBayesClassifier(alpha_opt)
     log_probs = nbClf.fit(
-        np.concatenate((X_train, X_val, X_test), axis=0),
-        np.concatenate((y_train, y_val, y_test), axis=0),
+        np.concatenate((X_train, X_val), axis=0),
+        np.concatenate((y_train, y_val), axis=0),
     )
     # Infer labels for the evaluation set
     y_inferred_test = nbClf.infer(np.c_[X_eval, np.ones(X_eval.shape[0])], log_probs)
