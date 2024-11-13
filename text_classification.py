@@ -1,179 +1,110 @@
+from collections import defaultdict
+
+import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import pyplot as plt
+from nltk import pos_tag
+from nltk.corpus import stopwords, wordnet
+from nltk.stem import WordNetLemmatizer
+from sklearn.ensemble import (
+    BaggingClassifier,
+    GradientBoostingClassifier,
+    RandomForestClassifier,
+)
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.kernel_approximation import RBFSampler
+from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.metrics import classification_report, f1_score
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import ComplementNB
+from sklearn.svm import SVC, LinearSVC
 
 
 # Function to load training and testing data
 def load_data():
-    X_train = np.load("data/data_train.npy")  # Load training features from .npy file
-    y_train = np.genfromtxt("data/label_train.csv", dtype=int, delimiter=",")[
+    data_train = np.load("data/data_train.npy")  # Load training features from .npy file
+    label_train = np.genfromtxt("data/label_train.csv", dtype=int, delimiter=",")[
         1:
     ]  # Load training labels from CSV, skipping the header
-    X_test = np.load("data/data_test.npy")  # Load testing features from .npy file
-    return X_train, y_train, X_test
+    data_test = np.load("data/data_test.npy")  # Load testing features from .npy file
+    return data_train, label_train, data_test
 
 
-# Function to split the dataset into training, validation, and test sets
-def split_data(X, y, seed):
-    indices = y[:, 0]  # Get the indices of labels
-    np.random.seed(seed)  # Set random seed for reproducibility
-    np.random.shuffle(indices)  # Shuffle the indices randomly
-    # Split indices into 70% training, 20% validation, and 10% testing
-    train_indices = indices[: int(0.8 * len(indices))]
-    val_indices = indices[int(0.8 * len(indices)) :]
-    # test_indices = indices[int(0.8 * len(indices)) :]
-    # Split features and labels according to the indices
-    X_train = X[train_indices]
-    y_train = y[train_indices, 1]
-    X_val = X[val_indices]
-    y_val = y[val_indices, 1]
-    # X_test = X[test_indices]
-    # y_test = y[test_indices, 1]
-    return X_train, y_train, X_val, y_val
+def get_wordnet_pos(word):
+    tag = pos_tag([word])[0][1][0].upper()
+    tag_dict = {
+        "J": wordnet.ADJ,
+        "N": wordnet.NOUN,
+        "V": wordnet.VERB,
+        "R": wordnet.ADV,
+    }
+    return tag_dict.get(tag, wordnet.NOUN)
 
 
-def compute_tf_idf(X):
-    tf = X / np.sum(X, axis=1)[:, None]
-    idf = np.log(X.shape[0] / np.count_nonzero(X, axis=0))
-    return tf * idf
-
-
-# Function to compute the macro F1 score given true and predicted labels
-def compute_f1_score(y_true, y_pred):
-    tp = np.zeros(2)  # True positives for each class
-    fp = np.zeros(2)  # False positives for each class
-    fn = np.zeros(2)  # False negatives for each class
-
-    # Calculate TP, FP, and FN for each prediction
-    for i in range(len(y_true)):
-        if y_pred[i] == y_true[i]:
-            tp[y_true[i]] += 1
-        else:
-            fp[y_pred[i]] += 1
-            fn[y_true[i]] += 1
-
-    precision = np.zeros(2)  # Precision for each class
-    recall = np.zeros(2)  # Recall for each class
-    f1_score = np.zeros(2)  # F1 score for each class
-
-    # Calculate precision, recall, and F1 score for each class
-    for i in range(2):
-        if tp[i] + fp[i] > 0:
-            precision[i] = tp[i] / (tp[i] + fp[i])
-        if tp[i] + fn[i] > 0:
-            recall[i] = tp[i] / (tp[i] + fn[i])
-        if precision[i] + recall[i] > 0:
-            f1_score[i] = 2 * (precision[i] * recall[i]) / (precision[i] + recall[i])
-
-    macro_f1 = np.mean(f1_score)  # Calculate the macro F1 score (average of F1 scores)
-    return macro_f1
-
-
-# Naive Bayes classifier class
-class NaiveBayesClassifier:
-    def __init__(self, alpha):
-        self.alpha = alpha  # Smoothing parameter
-
-    # Function to fit the model using training data
-    def fit(self, train_inputs, label_inputs):
-        class1_prior = (
-            np.sum(label_inputs) / label_inputs.shape[0]
-        )  # Prior probability of class 1
-        log_priors = np.log([1 - class1_prior, class1_prior])  # Log of class priors
-        mask = label_inputs == 0  # Mask for class 0
-        class0_features = train_inputs[mask]  # Features for class 0
-        class1_features = train_inputs[~mask]  # Features for class 1
-        # Compute log probabilities for each feature conditioned on the class
-        feature_log_probs = np.log(
-            [
-                (np.sum(class1_features, axis=0) + self.alpha)
-                / (np.sum(class1_features) + self.alpha * train_inputs.shape[1]),
-                (np.sum(class0_features, axis=0) + self.alpha)
-                / (np.sum(class0_features) + self.alpha * train_inputs.shape[1]),
-            ]
-        )
-        log_probs = np.c_[
-            feature_log_probs,
-            log_priors,
-        ]  # Combine feature log probs and priors
-        return log_probs
-
-    # Function to make predictions using the model
-    def infer(self, test_inputs, w):
-        return np.argmin(
-            test_inputs @ w.T, axis=1
-        )  # Predict class with the highest probability
-
-
-# Main function to execute the workflow
 def main():
-    # Load the training and evaluation data
-    X_train, y_train, X_eval = load_data()
+    wnl = WordNetLemmatizer()
+    vocab_maps = np.load("data/vocab_map.npy", allow_pickle=True)
+    print(vocab_maps.shape)
+    lemmatized_vocabs = [
+        wnl.lemmatize(word, get_wordnet_pos(word)) for word in vocab_maps
+    ]
+    indices_to_remove = []
+
+    index_map = defaultdict(list)
+    for index, value in enumerate(lemmatized_vocabs):
+        if value in stopwords.words("english"):
+            indices_to_remove.append(index)
+        index_map[value].append(index)
+    matching_indices = list(index_map.values())
+    data_train, label_train, data_test = load_data()
+    for indices in matching_indices:
+        main_index = indices[0]
+        for assoc_index in indices[1:]:
+            data_train[:, main_index] += data_train[:, assoc_index]
+            data_test[:, main_index] += data_test[:, assoc_index]
+            indices_to_remove.append(assoc_index)
+    X_train = np.delete(data_train, indices_to_remove, 1)
+    X_test = np.delete(data_test, indices_to_remove, 1)
+    print(X_train.shape)
+    print(X_train.shape)
     # Split the data into training, validation, and test sets
-    X_train, y_train, X_val, y_val = split_data(X_train, y_train, 42)
-    f1_train_values = []  # Store F1 scores for training data
-    f1_val_values = []  # Store F1 scores for validation data
-    # Loop over alpha values and evaluate the model
-    for alpha in alpha_values:
-        nbClf = NaiveBayesClassifier(alpha)  # Initialize Naive Bayes classifier
-        log_probs = nbClf.fit(X_train, y_train)  # Train the model
-        # Predict labels for validation and training sets
-        y_inferred_val = nbClf.infer(np.c_[X_val, np.ones(X_val.shape[0])], log_probs)
-        y_inferred_train = nbClf.infer(
-            np.c_[X_train, np.ones(X_train.shape[0])], log_probs
-        )
-
-        # Compute F1 scores
-        f1_val = compute_f1_score(y_val, y_inferred_val)
-        f1_train = compute_f1_score(y_train, y_inferred_train)
-        # cnb = ComplementNB(alpha=alpha)
-        # cnb.fit(X_train, y_train)
-        # y_train_pred = cnb.predict(X_train)
-        # y_val_pred = cnb.predict(X_val)
-        # f1_val = compute_f1_score(y_val, y_val_pred)
-        # f1_train = compute_f1_score(y_train, y_train_pred)
-        # Store the F1 scores
-        f1_val_values.append(f1_val)
-        f1_train_values.append(f1_train)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train, label_train[:, 1], test_size=0.2, random_state=42
+    )
+    transformer = TfidfTransformer()
+    X_train_tf_idf = transformer.fit_transform(X_train).toarray()
+    X_val_tf_idf = transformer.fit_transform(X_val).toarray()
+    alpha_vals = np.arange(0, 11, 0.1)
+    train_f1_scores = []
+    validation_f1_scores = []
+    for alpha in alpha_vals:
+        clf = ComplementNB(alpha=alpha)
+        clf.fit(X_train, y_train)
+        y_val_pred = clf.predict(X_val_tf_idf)
+        y_train_pred = clf.predict(X_train_tf_idf)
+        train_f1_score = f1_score(y_train, y_train_pred, average="macro")
+        validation_f1_score = f1_score(y_val, y_val_pred, average="macro")
         print(
-            f"Alpha: {alpha}, Macro F1 Score - Train: {f1_train:.4f}, Validation: {f1_val:.4f}"
+            f"alpha: {alpha}, Train F1 Score: {train_f1_score:.3f}, Validation F1 Score: {validation_f1_score:.3f}"
         )
+        train_f1_scores.append(train_f1_score)
+        validation_f1_scores.append(validation_f1_score)
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(
-        alpha_values,
-        f1_val_values,
-        label="F1 Score (Validation)",
-        linestyle="-",
-        marker="o",
-    )
-    plt.plot(
-        alpha_values,
-        f1_train_values,
-        label="F1 Score (Training)",
-        linestyle="-",
-        marker="o",
-    )
+    plt.figure(figsize=(8, 6))
+    plt.plot(alpha_vals, train_f1_scores, label="Train F1 Score", marker="o")
+    plt.plot(alpha_vals, validation_f1_scores, label="Validation F1 Score", marker="o")
+
+    plt.title("Train vs Validation F1 Score for Different Alpha Values")
     plt.xlabel("Alpha")
-    plt.ylabel("Macro F1 Score")
-    plt.title("Macro F1 Score vs Alpha")
+    plt.ylabel("F1 Score")
     plt.legend()
     plt.grid(True)
     plt.show()
-
-    # Find the optimal alpha value based on the highest validation F1 score
-    alpha_opt = alpha_values[np.argmax(f1_val_values)]
-    nbClf = NaiveBayesClassifier(alpha_opt)
-    log_probs = nbClf.fit(
-        np.concatenate((X_train, X_val), axis=0),
-        np.concatenate((y_train, y_val), axis=0),
-    )
-    # Infer labels for the evaluation set
-    y_inferred_test = nbClf.infer(np.c_[X_eval, np.ones(X_eval.shape[0])], log_probs)
-    indices = np.arange(len(y_inferred_test))  # Generate indices for the predictions
+    y_pred = clf.predict(X_test)
+    indices = np.arange(len(y_pred))  # Generate indices for the predictions
     # Write predictions to a CSV file
     with open("pred.csv", "w") as f:
         f.write("ID,label\n")
-        for each_id, label in zip(indices, y_inferred_test):
+        for each_id, label in zip(indices, y_pred):
             line = f"{each_id},{label}\n"
             f.write(line)
 
