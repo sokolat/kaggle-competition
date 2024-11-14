@@ -10,7 +10,7 @@ This project implements a text classification pipeline using a Complement Naive 
 - [Dataset](#dataset)
 - [Running the Script](#running-the-script)
 - [Output](#output)
-- [How the Code Works](#how-the-code-works)
+- [Troubleshooting](#Troubleshooting)
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ Before running the script, ensure you have the following installed:
 
 ## Installation
 
-1. **Clone the Repository**
+1. Clone the Repository**
 
    Start by cloning the repository or downloading the script to your local machine:
 
@@ -29,7 +29,7 @@ Before running the script, ensure you have the following installed:
    git clone https://github.com/sokolat/kaggle-competition.git
    cd kaggle-competition
 
-2. **Create a Virtual Environment (optional but recommended)
+2. Create a Virtual Environment (optional but recommended)
    
    It is recommended to use a virtual environment to manage dependencies:
 
@@ -37,14 +37,14 @@ Before running the script, ensure you have the following installed:
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-4. **Install Required Packages
+4. Install Required Packages
    
    Run the following command to install all the required dependencies:
 
    ```bash
    pip install numpy matplotlib nltk scikit-learn
 
-5. **Download NLTK Data
+5. Download NLTK Data
 
    The script requires some NLTK resources for text processing. Download the necessary datasets:
 
@@ -72,12 +72,12 @@ You should organize your data directory as follows:
 ## Running the Script
 To run the text classification script:
 
-1. **Open a terminal or command prompt and navigate to the directory containing the script:
+1. Open a terminal or command prompt and navigate to the directory containing the script:
 
    ```bash
    cd path/to/your/script
 
-2. **Execute the Python script:
+2. Execute the Python script:
    ```bash
    python text_classification.py
 
@@ -88,3 +88,12 @@ Once the script is run successfully, it will produce the following outputs:
 - F1 Score Plot: The script generates a plot (cnb_f1_score.png) showing F1 scores for both the training and validation datasets across different alpha values.
 
 - Predictions CSV: A pred.csv file is generated containing predictions on the test data. The file format is as follows:
+  ```bash
+  ID,label
+   0,1
+   1,0
+   ...
+## Troubleshooting
+   - Module Not Found: If you encounter an error like ModuleNotFoundError: No module named '...', make sure the required packages are installed using pip install.
+   - NLTK Data Missing: If NLTK-related errors appear, ensure you have downloaded the necessary datasets (stopwords and wordnet) by running python -m nltk.downloader stopwords wordnet.
+
