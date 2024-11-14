@@ -29,20 +29,20 @@ Before running the script, ensure you have the following installed:
    git clone https://github.com/sokolat/kaggle-competition.git
    cd kaggle-competition
 
-2. Create a Virtual Environment (optional but recommended)
+2. Create a Conda Environment (recommended)
    
    It is recommended to use a virtual environment to manage dependencies:
 
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   conda create --name text-classification python=3.x
+   conda activate text-classification
 
 4. Install Required Packages
    
    Run the following command to install all the required dependencies:
 
    ```bash
-   pip install numpy matplotlib nltk scikit-learn
+   conda install numpy matplotlib nltk scikit-learn
 
 5. Download NLTK Data
 
@@ -76,8 +76,13 @@ To run the text classification script:
 
    ```bash
    cd path/to/your/script
+   
+2. Install the required packages if you haven't already:
 
-2. Execute the Python script:
+   ```bash
+   conda install env.yml
+   
+3. Execute the Python script:
    ```bash
    python text_classification.py
 
