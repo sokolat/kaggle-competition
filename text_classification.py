@@ -17,7 +17,7 @@ def split_data(X, y, seed):
     indices = y[:, 0]  # Get the indices of labels
     np.random.seed(seed)  # Set random seed for reproducibility
     np.random.shuffle(indices)  # Shuffle the indices randomly
-    # Split indices into 70% training, 20% validation, and 10% testing
+    # Split indices into 80% training, 20% validation
     train_indices = indices[: int(0.8 * len(indices))]
     val_indices = indices[int(0.8 * len(indices)) :]
     # Split features and labels according to the indices
@@ -60,7 +60,7 @@ def compute_f1_score(y_true, y_pred):
 
 
 # Naive Bayes classifier class
-class NaiveBayesClassifier:
+class ComplementNB:
     def __init__(self, alpha):
         self.alpha = alpha  # Smoothing parameter
 
@@ -76,10 +76,10 @@ class NaiveBayesClassifier:
         # Compute log probabilities for each feature conditioned on the class
         feature_log_probs = np.log(
             [
-                (np.sum(class0_features, axis=0) + self.alpha)
-                / (np.sum(class0_features) + self.alpha * train_inputs.shape[1]),
                 (np.sum(class1_features, axis=0) + self.alpha)
                 / (np.sum(class1_features) + self.alpha * train_inputs.shape[1]),
+                (np.sum(class0_features, axis=0) + self.alpha)
+                / (np.sum(class0_features) + self.alpha * train_inputs.shape[1]),
             ]
         )
         log_probs = np.c_[
@@ -90,7 +90,7 @@ class NaiveBayesClassifier:
 
     # Function to make predictions using the model
     def infer(self, test_inputs, w):
-        return np.argmax(
+        return np.argmin(
             test_inputs @ w.T, axis=1
         )  # Predict class with the highest probability
 
@@ -103,10 +103,10 @@ def main():
     X_train, y_train, X_val, y_val = split_data(X_train, y_train, 42)
     f1_train_values = []  # Store F1 scores for training data
     f1_val_values = []  # Store F1 scores for validation data
-    alpha_values = np.arange(0.1, 11, 0.1)
+    alpha_values = np.arange(0.1, 10.1, 0.1)
     # Loop over alpha values and evaluate the model
     for alpha in alpha_values:
-        nbClf = NaiveBayesClassifier(alpha)  # Initialize Naive Bayes classifier
+        nbClf = ComplementNB(alpha)  # Initialize Naive Bayes classifier
         log_probs = nbClf.fit(X_train, y_train)  # Train the model
         # Predict labels for validation and training sets
         y_inferred_val = nbClf.infer(np.c_[X_val, np.ones(X_val.shape[0])], log_probs)
@@ -117,12 +117,6 @@ def main():
         # Compute F1 scores
         f1_val = compute_f1_score(y_val, y_inferred_val)
         f1_train = compute_f1_score(y_train, y_inferred_train)
-        # cnb = ComplementNB(alpha=alpha)
-        # cnb.fit(X_train, y_train)
-        # y_train_pred = cnb.predict(X_train)
-        # y_val_pred = cnb.predict(X_val)
-        # f1_val = compute_f1_score(y_val, y_val_pred)
-        # f1_train = compute_f1_score(y_train, y_train_pred)
         # Store the F1 scores
         f1_val_values.append(f1_val)
         f1_train_values.append(f1_train)
@@ -147,14 +141,18 @@ def main():
     )
     plt.xlabel("Alpha")
     plt.ylabel("Macro F1 Score")
-    plt.title("Naive Bayes macro F1 Score vs Alpha")
+    plt.title("Complement Naive Bayes macro F1 Score vs Alpha")
     plt.legend()
     plt.grid(True)
     plt.savefig("macro_f1_score.png")
     plt.show()
     # Find the optimal alpha value based on the highest validation F1 score
     alpha_opt = alpha_values[np.argmax(f1_val_values)]
-    nbClf = NaiveBayesClassifier(alpha_opt)
+    nbClf = ComplementNB(alpha_opt)
+    log_probs = nbClf.fit(X_train, y_train)
+    print(
+        f"macro f1_score: {compute_f1_score(y_val, nbClf.infer(np.c_[X_val, np.ones(X_val.shape[0])], log_probs))}"
+    )
     log_probs = nbClf.fit(
         np.concatenate((X_train, X_val), axis=0),
         np.concatenate((y_train, y_val), axis=0),
