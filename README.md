@@ -72,4 +72,19 @@ You should organize your data directory as follows:
 ## Running the Script
 To run the text classification script:
 
+1. **Open a terminal or command prompt and navigate to the directory containing the script:
 
+   ```bash
+   cd path/to/your/script
+
+2. **Execute the Python script:
+   ```bash
+   python text_classification.py
+
+## Output
+
+Once the script is run successfully, it will produce the following outputs:
+
+- F1 Score Plot: The script generates a plot (cnb_f1_score.png) showing F1 scores for both the training and validation datasets across different alpha values.
+
+- Predictions CSV: A pred.csv file is generated containing predictions on the test data. The file format is as follows:
