@@ -17,7 +17,7 @@ This project implements a text classification pipeline using a Complement Naive 
 Before running the script, ensure you have the following installed:
 
 - Python 3.x
-- Pip (Python package manager)
+- Conda Miniforge (package manager)
 
 ## Installation
 
