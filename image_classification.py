@@ -3,8 +3,8 @@ import gc
 import pickle
 from datetime import datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
-import timm
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -17,7 +17,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a machine learning model.")
 
     # Required arguments
-    parser.add_argument("--data_path", type=str, help="Path to the dataset file.")
+    parser.add_argument(
+        "--train_data_path", type=str, help="Path to the train dataset file."
+    )
+    parser.add_argument(
+        "--test_data_path", type=str, help="Path to the test dataset file."
+    )
     parser.add_argument(
         "--output_path", type=str, help="Directory to save the trained model and logs."
     )
@@ -56,85 +61,69 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_data(path):
-    # Load the pickle file
-    with open(path, "rb") as f:
-        data = pickle.load(f)
-    # Access images and labels
-    images = data["images"]
-    labels = data["labels"]
-    return images, labels
-
-
-class VitBase16(nn.Module):
-    def __init__(self, batch_size, lr, seed, epochs):
-        super(VitBase16, self).__init__()
+class Cnn:
+    def __init__(self, batch_size, lr, seed, epochs, device):
         self.seed = seed
         self.batch_size = batch_size
         self.lr = lr
         self.epochs = epochs
-        self.labels = 4
         self.train = None
         self.val = None
+        self.test = None
         self.output_path = None
-        self.model = timm.create_model("vit_base_patch16_224", pretrained=False)
-        self.model.head = nn.Linear(self.model.head.in_features, self.labels)
+        self.device = device
+        self.model = nn.Sequential(
+            nn.Conv2d(1, 16, 5),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(16, 32, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 64, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Flatten(),
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(128, 4),
+        ).to(device)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def forward(self, X):
-        X = self.model(X)
-        return X
-
-    def load_data(self, path, device):
+    def load_data(self, train_path, test_path):
         torch.manual_seed(self.seed)
         # Load the pickle file
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-        # Access images and labels
-        images = torch.tensor(np.array(data["images"]), dtype=torch.float32).unsqueeze(
-            1
-        )
-        labels = torch.tensor(np.array(data["labels"]), dtype=torch.float32)
-        images.to(device)
-        labels.to(device)
-        X_train, X_val, y_train, y_val = train_test_split(
-            images, labels, test_size=0.2, random_state=self.seed
-        )
-        X_train, X_val = self.process_images(X_train, X_val)
-        print("ok")
-        X_train.repeat(1, 3, 1, 1)
-        X_val.repeat(1, 3, 1, 1)
-        train_dataset = TensorDataset(X_train, y_train)
-        val_dataset = TensorDataset(X_val, y_val)
-        self.train = torch.utils.data.DataLoader(
-            dataset=train_dataset, batch_size=self.batch_size, shuffle=True
-        )
-        self.val = val_loader = torch.utils.data.DataLoader(
-            dataset=val_dataset, batch_size=self.batch_size, shuffle=False
-        )
+        if train_path:
+            with open(train_path, "rb") as f:
+                data = pickle.load(f)
+            # Access images and labels
+            images = torch.tensor(
+                np.array(data["images"]), dtype=torch.float32
+            ).unsqueeze(1)
+            labels = torch.tensor(np.array(data["labels"]), dtype=torch.int64)
+            X_train, X_val, y_train, y_val = train_test_split(
+                images, labels, test_size=0.2, random_state=self.seed
+            )
+            train_dataset = TensorDataset(X_train, y_train)
+            val_dataset = TensorDataset(X_val, y_val)
+            self.train = torch.utils.data.DataLoader(
+                dataset=train_dataset, batch_size=self.batch_size, shuffle=True
+            )
+            self.val = torch.utils.data.DataLoader(
+                dataset=val_dataset, batch_size=self.batch_size, shuffle=False
+            )
+        if test_path:
+            with open(test_path, "rb") as f:
+                data = pickle.load(f)
+            # Access images and labels
+            self.test = (
+                torch.tensor(np.array(data["images"]), dtype=torch.float32)
+                .unsqueeze(1)
+                .to(self.device)
+            )
 
-    def process_images(self, train_images, val_images):
-        # create image augmentations
-        transforms_train = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                # transforms.RandomHorizontalFlip(p=0.3),
-                # transforms.RandomVerticalFlip(p=0.3),
-                # transforms.RandomResizedCrop(224),
-                transforms.Normalize((0.5), (0.5)),
-            ]
-        )
-
-        transforms_valid = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.Normalize((0.5), (0.5)),
-            ]
-        )
-        return transforms_train(train_images), transforms_valid(val_images)
-
-    def train_one_epoch(self, device):
+    def train_one_epoch(self):
         # keep track of training loss
         epoch_loss = 0.0
         epoch_accuracy = 0.0
@@ -144,13 +133,13 @@ class VitBase16(nn.Module):
         ###################
         self.model.train()
         for i, (data, target) in enumerate(self.train):
-            data = data.to(device)
-            target = target.to(device)
+            data = data.to(self.device, dtype=torch.float32)
+            target = target.to(self.device, dtype=torch.long)
 
             # clear the gradients of all optimized variables
             self.optimizer.zero_grad()
             # forward pass: compute predicted outputs by passing inputs to the model
-            output = self.forward(data)
+            output = self.model(data)
             # calculate the batch loss
             loss = self.criterion(output, target)
             # backward pass: compute gradient of the loss with respect to model parameters
@@ -158,15 +147,15 @@ class VitBase16(nn.Module):
             # Calculate Accuracy
             accuracy = (output.argmax(dim=1) == target).float().mean()
             # update training loss and accuracy
-            epoch_loss += loss
+            epoch_loss += loss.item()
             epoch_accuracy += accuracy
 
             # perform a single optimization step (parameter update)
-            optimizer.step()
+            self.optimizer.step()
 
         return epoch_loss / len(self.train), epoch_accuracy / len(self.train)
 
-    def validate_one_epoch(self, device):
+    def validate_one_epoch(self):
         # keep track of validation loss
         valid_loss = 0.0
         valid_accuracy = 0.0
@@ -176,8 +165,8 @@ class VitBase16(nn.Module):
         ######################
         self.model.eval()
         for data, target in self.val:
-            data = data.to(args.device)
-            target = target.to(args.device)
+            data = data.to(self.device, dtype=torch.float32)
+            target = target.to(self.device, dtype=torch.long)
 
             with torch.no_grad():
                 # forward pass: compute predicted outputs by passing inputs to the model
@@ -187,12 +176,12 @@ class VitBase16(nn.Module):
                 # Calculate Accuracy
                 accuracy = (output.argmax(dim=1) == target).float().mean()
                 # update average validation loss and accuracy
-                valid_loss += loss
+                valid_loss += loss.item()
                 valid_accuracy += accuracy
 
         return valid_loss / len(self.val), valid_accuracy / len(self.val)
 
-    def fit(self, device, output_path):
+    def fit(self, output_path):
         valid_loss_min = np.inf
 
         train_losses = []
@@ -203,7 +192,7 @@ class VitBase16(nn.Module):
         for epoch in range(1, self.epochs + 1):
             print(f"{'='*50}")
             print(f"EPOCH {epoch} - TRAINING...")
-            train_loss, train_acc = self.train_one_epoch(device)
+            train_loss, train_acc = self.train_one_epoch()
             print(
                 f"\n\t[TRAIN] EPOCH {epoch} - LOSS: {train_loss}, ACCURACY: {train_acc}\n"
             )
@@ -212,8 +201,8 @@ class VitBase16(nn.Module):
             gc.collect()
 
             print(f"EPOCH {epoch} - VALIDATING...")
-            valid_loss, valid_acc = self.validate_one_epoch(device)
-            xm.master_print(f"\t[VALID] LOSS: {valid_loss}, ACCURACY: {valid_acc}\n")
+            valid_loss, valid_acc = self.validate_one_epoch()
+            print(f"\t[VALID] LOSS: {valid_loss}, ACCURACY: {valid_acc}\n")
             valid_losses.append(valid_loss)
             valid_accs.append(valid_acc)
             gc.collect()
@@ -225,15 +214,18 @@ class VitBase16(nn.Module):
                         valid_loss_min, valid_loss
                     )
                 )
-                torch.save(model.state_dict(), output_path)
+                torch.save(
+                    self.model.state_dict(),
+                    f"{output_path}.pth",
+                )
                 valid_loss_min = valid_loss
 
-            return {
-                "train_loss": train_losses,
-                "valid_losses": valid_losses,
-                "train_acc": train_accs,
-                "valid_acc": valid_accs,
-            }
+        return {
+            "train_losses": train_losses,
+            "valid_losses": valid_losses,
+            "train_accs": train_accs,
+            "valid_accs": valid_accs,
+        }
 
 
 def main():
@@ -252,25 +244,106 @@ def main():
                     "and/or you do not have an MPS-enabled device on this machine."
                 )
         else:
-            print("ok")
             device = torch.device("mps")
 
-    model = VitBase16(args.batch_size, args.learning_rate, args.seed, args.epochs)
-    model.to(device)
-    print(next(model.parameters()).device)
-    model.load_data(args.data_path, device)
+    cnn = Cnn(args.batch_size, args.learning_rate, args.seed, args.epochs, device)
+    cnn.load_data(args.train_data_path, args.test_data_path)
 
     print(f"INITIALIZING TRAINING ON MPS GPU")
     start_time = datetime.now()
     print(f"Start Time: {start_time}")
 
-    logs = model.fit(device, args.output_path)
+    logs = cnn.fit(args.output_path)
+
+    # Convert losses and accuracies to NumPy arrays
+    train_losses = logs["train_losses"]
+    valid_losses = logs["valid_losses"]
+    train_accs = logs["train_accs"]
+    valid_accs = logs["valid_accs"]
+
+    # create the figure
+    plt.figure(figsize=(10, 5))
+
+    # plot losses
+    plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st plot
+    plt.plot(
+        np.arange(1, len(train_losses) + 1),
+        train_losses,
+        label="train loss",
+        marker="o",
+    )
+    plt.plot(
+        np.arange(1, len(valid_losses) + 1),
+        valid_losses,
+        label="validation loss",
+        marker="o",
+    )
+    plt.title("loss: train vs validation")
+    plt.xlabel("epochs")
+    plt.ylabel("loss")
+    plt.legend()
+    plt.grid()
+
+    # plot accuracies
+    plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd plot
+    plt.plot(
+        np.arange(1, len(train_accs) + 1),
+        train_accs,
+        label="train accuracy",
+        marker="o",
+    )
+    plt.plot(
+        np.arange(1, len(valid_accs) + 1),
+        valid_accs,
+        label="validation accuracy",
+        marker="o",
+    )
+    plt.title("Loss: Train vs Validation")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid()
+
+    # Plot Accuracies
+    plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd plot
+    plt.plot(
+        np.arange(1, args.epochs + 1), train_accs, label="Train Accuracy", marker="o"
+    )
+    plt.plot(
+        np.arange(1, args.epochs + 1),
+        valid_accs,
+        label="Validation Accuracy",
+        marker="o",
+    )
+    plt.title("Accuracy: Train vs Validation")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.grid()
+
+    # Display the plots
+    plt.tight_layout()
+    plt.savefig("train_val_metrics.png")
+    plt.show()
 
     print(f"Execution time: {datetime.now() - start_time}")
 
     torch.save(
-        model.state_dict, f'model_5e_{datetime.now().strftime("%Y%m%d-%H%M")}.pth'
+        cnn.model.state_dict, f'model_{datetime.now().strftime("%Y%m%d-%H%M")}.pth'
     )
+
+    # Load the model state
+    cnn.model.load_state_dict(torch.load("./data/out/best_model_params.pth"))
+    cnn.model.eval()
+    with torch.no_grad():
+        preds = cnn.model(cnn.test).argmax(dim=1)
+
+    # Write predictions to a CSV file
+    with open("pred.csv", "w") as f:
+        f.write("ID, Class\n")
+        for each_id, label in enumerate(preds):
+            line = f"{each_id+1},{label}\n"
+            f.write(line)
 
 
 if __name__ == "__main__":
