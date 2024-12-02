@@ -73,20 +73,20 @@ class Cnn:
         self.output_path = None
         self.device = device
         self.model = nn.Sequential(
-            nn.Conv2d(1, 16, 5),
+            nn.Conv2d(1, 16, 3),
             nn.ReLU(),
-            nn.MaxPool2d(2, 2),
             nn.Conv2d(16, 32, 3),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
+            nn.Dropout(p=0.2),
             nn.Conv2d(32, 64, 3),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
             nn.Flatten(),
-            nn.Linear(64, 128),
+            nn.Linear(1600, 256),
             nn.ReLU(),
             nn.Dropout(),
-            nn.Linear(128, 4),
+            nn.Linear(256, 4),
         ).to(device)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -105,8 +105,17 @@ class Cnn:
             X_train, X_val, y_train, y_val = train_test_split(
                 images, labels, test_size=0.2, random_state=self.seed
             )
-            train_dataset = TensorDataset(X_train, y_train)
-            val_dataset = TensorDataset(X_val, y_val)
+            transforms_train = transforms.Compose(
+                [
+                    transforms.RandomHorizontalFlip(p=0.3),
+                    transforms.RandomVerticalFlip(p=0.3),
+                    transforms.Normalize((0.5), (0.5)),
+                ]
+            )
+
+            transforms_valid = transforms.Compose([transforms.Normalize((0.5), (0.5))])
+            train_dataset = TensorDataset(transforms_train(X_train), y_train)
+            val_dataset = TensorDataset(transforms_valid(X_val), y_val)
             self.train = torch.utils.data.DataLoader(
                 dataset=train_dataset, batch_size=self.batch_size, shuffle=True
             )
@@ -117,11 +126,10 @@ class Cnn:
             with open(test_path, "rb") as f:
                 data = pickle.load(f)
             # Access images and labels
-            self.test = (
-                torch.tensor(np.array(data["images"]), dtype=torch.float32)
-                .unsqueeze(1)
-                .to(self.device)
-            )
+            transforms_test = transforms.Compose([transforms.Normalize((0.5), (0.5))])
+            self.test = transforms_test(
+                torch.tensor(np.array(data["images"]), dtype=torch.float32).unsqueeze(1)
+            ).to(self.device)
 
     def train_one_epoch(self):
         # keep track of training loss
