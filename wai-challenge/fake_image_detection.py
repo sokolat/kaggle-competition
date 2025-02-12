@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import SubsetRandomSampler
 from torcheval.metrics.functional import multiclass_f1_score
-from torchvision import transforms
+from torchvision.transforms import v2
 from tqdm import tqdm
 
 from xception import xception
@@ -61,7 +61,7 @@ def parse_args():
     return parser.parse_args()
 
 
-class ImageDataset(Dataset):
+class TrainImageDataset(Dataset):
     def __init__(self, transform=None):
         self.filenames = [
             filename for filename in os.listdir(os.path.join("data/train_data"))
@@ -85,6 +85,29 @@ class ImageDataset(Dataset):
             image,
             self.filenames_to_labels_map["train_data" + "/" + self.filenames[index]],
         )
+
+
+class TestImageDataset(Dataset):
+    def __init__(self, transform=None):
+        self.filenames = [
+            filename for filename in os.listdir(os.path.join("data/test_data_v2"))
+        ]
+        self.labels = pd.read_csv("data/test.csv", delimiter=",")
+
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, index: int):
+        img_path = os.path.join(
+            "data/test_data_v2",
+            self.filenames[index],
+        )
+        image = Image.open(img_path).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return (image, self.filenames[index])
 
 
 class Network(nn.Module):
@@ -135,15 +158,18 @@ if __name__ == "__main__":
     start_time = datetime.now()
     print(f"Start Time: {start_time}")
 
-    transform = transforms.Compose(
+    transform = v2.Compose(
         [
-            transforms.ToTensor(),
-            transforms.Resize((299, 299)),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            v2.ToTensor(),
+            v2.Resize(333),
+            v2.CenterCrop(299),
+            v2.RandomHorizontalFlip(p=0.5),
+            v2.RandomVerticalFlip(p=0.5),
+            v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     )
 
-    dataset = ImageDataset(transform=transform)
+    dataset = TrainImageDataset(transform=transform)
 
     validation_split = 0.2
     dataset_size = len(dataset)
@@ -184,7 +210,7 @@ if __name__ == "__main__":
         for data, target in tqdm(train_dataloader):
             data = data.to(device, dtype=torch.float32)
             target = target.to(device, dtype=torch.long)
-            breakpoint()
+
             optimizer.zero_grad()
 
             output = model(data)
@@ -259,3 +285,103 @@ if __name__ == "__main__":
         model.state_dict,
         f'model_{datetime.now().strftime("%Y%m%d-%H%M")}.pth',
     )
+
+    test_transform = v2.Compose(
+        v2.ToTensor(),
+        v2.Resize(333),
+        v2.CenterCrop(299),
+        v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+    )
+    test_dataset = TestImageDataset(test_transform)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+
+    model.load_state_dict(torch.load("./data/best_model_params.pth"))
+
+    model.eval()
+    predictions = {}
+
+    with torch.no_grad():
+        for images, filenames in tqdm(test_dataloader):
+            images = images.to(device, dtype=torch.float32)
+
+            outputs = model(images)
+            probs = F.softmax(outputs, dim=1)
+            preds = torch.argmax(probs, dim=1)
+
+            for filename, pred in zip(filenames, preds.cpu().numpy()):
+                predictions[filename] = pred
+
+    target = pd.read_csv("./data/test.csv")
+    labels = pd.DataFrame(list(predictions.items()), columns=["id", "label"])
+    labels["id"] = "test_data_v2" + labels["id"]
+    merged = pd.merge(target, labels, on="id", how="inner")
+    merged.index = merged.index + 1
+    merged.to_csv("pred.csv", index=False)
+
+    train_losses = logs["train_losses"]
+    valid_losses = logs["valid_losses"]
+    train_f1_scores = logs["train_f1_scores"]
+    valid_f1_scores = logs["valid_f1_scores"]
+
+    plt.figure(figsize=(10, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(
+        np.arange(1, len(train_losses) + 1),
+        train_losses,
+        label="train loss",
+        marker="o",
+    )
+    plt.plot(
+        np.arange(1, len(valid_losses) + 1),
+        valid_losses,
+        label="validation loss",
+        marker="o",
+    )
+    plt.title("loss: train vs validation")
+    plt.xlabel("epochs")
+    plt.ylabel("loss")
+    plt.legend()
+    plt.grid()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(
+        np.arange(1, len(train_f1_scores) + 1),
+        train_f1_scores,
+        label="train F1-score",
+        marker="o",
+    )
+    plt.plot(
+        np.arange(1, len(valid_f1_scores) + 1),
+        valid_f1_scores,
+        label="validation F1-score",
+        marker="o",
+    )
+    plt.title("Loss: Train vs Validation")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(
+        np.arange(1, args.epochs + 1),
+        train_f1_scores,
+        label="Train  F1-score",
+        marker="o",
+    )
+    plt.plot(
+        np.arange(1, args.epochs + 1),
+        valid_f1_scores,
+        label="Validation F1-score",
+        marker="o",
+    )
+    plt.title("F1-score: Train vs Validation")
+    plt.xlabel("Epochs")
+    plt.ylabel("F1-score")
+    plt.legend()
+    plt.grid()
+
+    plt.tight_layout()
+    plt.savefig("train_val_metrics.png")
+    plt.show()
