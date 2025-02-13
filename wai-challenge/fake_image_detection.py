@@ -11,8 +11,7 @@ import torch.nn as nn
 from PIL import Image
 from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data import DataLoader, Dataset, Subset
 from torcheval.metrics.functional import multiclass_f1_score
 from torchvision.transforms import v2
 from tqdm import tqdm
@@ -176,17 +175,14 @@ if __name__ == "__main__":
     indices = list(range(dataset_size))
     split = int(np.floor(validation_split * dataset_size))
     np.random.seed(args.seed)
-    np.random.shuffle(indices)
     train_indices, val_indices = indices[split:], indices[:split]
 
-    train_sampler = SubsetRandomSampler(train_indices)
-    valid_sampler = SubsetRandomSampler(val_indices)
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
     train_dataloader = DataLoader(
-        dataset, batch_size=args.batch_size, sampler=train_sampler
+        train_dataset, batch_size=args.batch_size, shuffle=True
     )
-    val_dataloader = DataLoader(
-        dataset, batch_size=args.batch_size, sampler=valid_sampler
-    )
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
 
     model = Network().base_network.to(device)
     optimizer = torch.optim.Adam(
@@ -285,14 +281,15 @@ if __name__ == "__main__":
         model.state_dict,
         f'model_{datetime.now().strftime("%Y%m%d-%H%M")}.pth',
     )
-
+    """
     test_transform = v2.Compose(
         v2.ToTensor(),
         v2.Resize(333),
         v2.CenterCrop(299),
         v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     )
-    test_dataset = TestImageDataset(test_transform)
+    """
+    test_dataset = TestImageDataset(transform)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 
     model.load_state_dict(torch.load("./data/best_model_params.pth"))
