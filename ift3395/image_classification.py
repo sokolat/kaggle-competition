@@ -74,23 +74,19 @@ class Cnn:
         self.device = device
         self.model = nn.Sequential(
             nn.Conv2d(1, 16, 3),
-            nn.Dropout(p=0.1),
             nn.ReLU(),
-            nn.BatchNorm2d(16),
             nn.Conv2d(16, 32, 3),
             nn.Dropout(p=0.1),
             nn.ReLU(),
-            nn.BatchNorm2d(32),
             nn.MaxPool2d(2, 2),
             nn.Conv2d(32, 64, 3),
-            nn.Dropout(p=0.1),
+            nn.Dropout(p=0.2),
             nn.ReLU(),
-            nn.BatchNorm2d(64),
             nn.MaxPool2d(2, 2),
             nn.Flatten(),
             nn.Linear(1600, 256),
             nn.ReLU(),
-            nn.Dropout(),
+            nn.Dropout(p=0.5),
             nn.Linear(256, 4),
         ).to(device)
         self.criterion = nn.CrossEntropyLoss()
